@@ -9,10 +9,10 @@ tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 # Given values
 values = [190.4, 112.6, 52.6, 43.8, 47.3, 33.5, 17.9, 23.9, 60.8, 26.6, -6.1, -3.2]
 
-# Normalize the given values into percentages
+# Normalize the given values into percentages and reverse the process
 min_value = min(values)
 max_value = max(values)
-normalized_percentages = [(value - min_value) / (max_value - min_value) * 100 for value in values]
+normalized_percentages = [100 - (value - min_value) / (max_value - min_value) * 100 for value in values]
 
 # Perform weight pruning on each layer
 for i, layer in enumerate(model.encoder.layer[:len(normalized_percentages)]):
