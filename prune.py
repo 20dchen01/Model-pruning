@@ -1,39 +1,54 @@
 import torch
-import torch.nn.utils.prune as prune
-from transformers import BertTokenizer, BertModel
+import numpy as np
+from transformers import BertModel, BertTokenizer
 
-# Load the BERT-base-uncased model
-model = BertModel.from_pretrained("bert-base-uncased")
+# Load BERT
+model = BertModel.from_pretrained('bert-base-uncased')
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
-# Define the pruning percentages for each layer
-pruning_percentages = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
-                       0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
+# Given values
+values = [190.4, 112.6, 52.6, 43.8, 47.3, 33.5, 17.9, 23.9, 60.8, 26.6, -6.1, -3.2]
+
+# Normalize the given values into percentages
+min_value = min(values)
+max_value = max(values)
+normalized_percentages = [(value - min_value) / (max_value - min_value) * 100 for value in values]
 
 # Perform weight pruning on each layer
-for i, layer in enumerate(model.encoder.layer):
-    # Adjust the percentage if there are fewer pruning percentages than layers
-    pruning_percentage = pruning_percentages[i % len(pruning_percentages)]
+for i, layer in enumerate(model.encoder.layer[:len(normalized_percentages)]):
+    pruning_percentage = normalized_percentages[i]
 
-    # Prune the weights in the self-attention sub-layer
-    prune.l1_unstructured(layer.attention.self.query, 'weight', amount=pruning_percentage)
-    prune.l1_unstructured(layer.attention.self.key, 'weight', amount=pruning_percentage)
-    prune.l1_unstructured(layer.attention.self.value, 'weight', amount=pruning_percentage)
+    # Get weights
+    layer_weights = layer.output.dense.weight.data
 
-    # Prune the weights in the position-wise feed-forward sub-layer
-    prune.l1_unstructured(layer.intermediate.dense, 'weight', amount=pruning_percentage)
-    prune.l1_unstructured(layer.output.dense, 'weight', amount=pruning_percentage)
+    # Calculate threshold value for pruning
+    all_weights = torch.flatten(torch.abs(layer_weights))
+    sorted_weights, _ = torch.sort(all_weights, descending=True)
+    threshold_idx = int(len(sorted_weights) * pruning_percentage / 100) - 1
+    threshold = sorted_weights[threshold_idx]
 
-# # Remove the pruning masks and make pruning permanent
-# for module in model.modules():
-#     if isinstance(module, torch.nn.Linear):
-#         # Check if the parameter has been pruned before removing pruning
-#         if hasattr(module.weight, "orig"):
-#             prune.remove(module, 'weight')
+    # Prune weights below threshold value
+    pruned_weights = layer_weights * (torch.abs(layer_weights) > threshold).float()
 
+    # Calculate sparsity
+    original_layer = layer_weights.cpu().numpy()
+    pruned_layer = pruned_weights.cpu().numpy()
 
-# Calculate total number of parameters in pruned model
+    original_sparsity = np.count_nonzero(original_layer == 0) / original_layer.size
+    pruned_sparsity = np.count_nonzero(pruned_layer == 0) / pruned_layer.size
+
+    print(f"Layer {i + 1}")
+    print(f"  Pruning percentage: {pruning_percentage:.2f}%")
+    print(f"  Original sparsity: {original_sparsity:.4f}")
+    print(f"  Pruned sparsity: {pruned_sparsity:.4f}")
+
+    # Update model's weights for the current layer with pruned weights
+    layer.output.dense.weight.data = pruned_weights
+
 num_params = sum(p.numel() for p in model.parameters())
 print(f'The pruned model has {num_params} parameters.')
+
+
 num_nonzero_params = sum((p != 0).sum().item() for p in model.parameters())
 
 print(f'The pruned model has {num_nonzero_params} non-zero parameters.')
