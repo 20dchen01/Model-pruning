@@ -1,2 +1,4 @@
 
 pruned_bert_model.pt
+pruned_bert_base/pytorch_model.bin
+pruned_bert_base/config.json
