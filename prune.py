@@ -1,25 +1,39 @@
 import torch
 import torch.nn.utils.prune as prune
-from transformers import BertForSequenceClassification, BertTokenizer
+from transformers import BertTokenizer, BertModel
 
-# Load the BERT model from Hugging Face
-model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+# Load the BERT-base-uncased model
+model = BertModel.from_pretrained("bert-base-uncased")
 
-# Identify the layers to prune
-layers_to_prune = [5, 10]
+# Define the pruning percentages for each layer
+pruning_percentages = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
+                       0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
 
-# Define a pruning function
-def prune_model(model, layers):
-    for name, module in model.named_modules():
-        if isinstance(module, torch.nn.Linear) and 'classifier' not in name:
-            if module.weight.ndim == 2:
-                prune.ln_structured(module, name='weight', amount=0.2, n=2, dim=0)
-    return model
+# Perform weight pruning on each layer
+for i, layer in enumerate(model.encoder.layer):
+    # Adjust the percentage if there are fewer pruning percentages than layers
+    pruning_percentage = pruning_percentages[i % len(pruning_percentages)]
 
-# Apply the pruning function to the model's parameters
-prune_model(model, layers_to_prune)
+    # Prune the weights in the self-attention sub-layer
+    prune.l1_unstructured(layer.attention.self.query, 'weight', amount=pruning_percentage)
+    prune.l1_unstructured(layer.attention.self.key, 'weight', amount=pruning_percentage)
+    prune.l1_unstructured(layer.attention.self.value, 'weight', amount=pruning_percentage)
 
-# Train and evaluate the pruned model on the SST2 dataset
-# ...
-torch.save(model, 'pruned_bert_model.pt')
+    # Prune the weights in the position-wise feed-forward sub-layer
+    prune.l1_unstructured(layer.intermediate.dense, 'weight', amount=pruning_percentage)
+    prune.l1_unstructured(layer.output.dense, 'weight', amount=pruning_percentage)
+
+# # Remove the pruning masks and make pruning permanent
+# for module in model.modules():
+#     if isinstance(module, torch.nn.Linear):
+#         # Check if the parameter has been pruned before removing pruning
+#         if hasattr(module.weight, "orig"):
+#             prune.remove(module, 'weight')
+
+
+# Calculate total number of parameters in pruned model
+num_params = sum(p.numel() for p in model.parameters())
+print(f'The pruned model has {num_params} parameters.')
+num_nonzero_params = sum((p != 0).sum().item() for p in model.parameters())
+
+print(f'The pruned model has {num_nonzero_params} non-zero parameters.')

@@ -1,15 +1,15 @@
-import torch
-import os
+import tensorflow as tf
 
-# Load the saved model
-model_path = os.path.abspath('pruned_bert_model.pt')
-model = torch.load(model_path)
+# Load the model
+model = tf.keras.models.load_model('pruned_bert_model.pt')
 
-# Check if the model has been pruned
-for name, param in model.named_parameters():
-    if 'bert.encoder.layer.5' in name or 'bert.encoder.layer.10' in name:
-        # Check if the parameter tensor contains any zeros
-        if torch.sum(param == 0) > 0:
-            print(f'{name} has been pruned')
-        else:
-            print(f'{name} has not been pruned')
+# Get the weights of layer 5
+weights = model.layers[5].get_weights()[0]
+
+# Count the number of zero-valued elements in the weights tensor
+num_zeros = tf.math.count_nonzero(tf.abs(weights) < 1e-6)
+
+# Calculate the sparsity of layer 5
+sparsity = num_zeros / weights.size
+
+print("Sparsity of layer 5:", sparsity.numpy())
